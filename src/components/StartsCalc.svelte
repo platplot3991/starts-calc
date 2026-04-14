@@ -40,7 +40,12 @@
     }
 
     const maxSec = Math.max(...valid.map(p => p.sec));
-    const baseTime = 2000;
+
+    // 現在時刻+60秒を切り上げて次の分を集結時刻にする（UTC）
+    const nowMs = Date.now() + 60000;
+    const targetMs = Math.ceil(nowMs / 60000) * 60000;
+    const baseMin = new Date(targetMs).getUTCMinutes();
+    const baseTime = baseMin * 100; // MMSS形式（秒は00）
 
     const lines = [...valid]
       .sort((a, b) => b.sec - a.sec)
