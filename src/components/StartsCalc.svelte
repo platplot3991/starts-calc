@@ -12,6 +12,8 @@
     { name: '', seconds: '' },
   ];
   let delayIndex: number | null = null;
+  let urgent = false;
+  let defense = false;
 
   let result = '';
   let copied = false;
@@ -41,8 +43,8 @@
 
     const maxSec = Math.max(...valid.map(p => p.sec));
 
-    // 現在時刻+60秒を切り上げて次の分を集結時刻にする（UTC）
-    const nowMs = Date.now() + 60000;
+    // 現在時刻+60秒（お急ぎ時は+30秒）を切り上げて次の分を集結時刻にする（UTC）
+    const nowMs = Date.now() + (urgent ? 30000 : 60000);
     const targetMs = Math.ceil(nowMs / 60000) * 60000;
     const baseMin = new Date(targetMs).getUTCMinutes();
     const baseTime = baseMin * 100; // MMSS形式（秒は00）
@@ -60,7 +62,13 @@
 
     const delayedPlayer = valid.find(p => p.delay);
     if (delayedPlayer) {
-      parts.push(`${delayedPlayer.name}優先ジェシー523`);
+      parts.push('');
+      if (defense) {
+        parts.push(`${delayedPlayer.name}優先セルゲイorパトリック613`);
+        parts.push('他ジェシー523');
+      } else {
+        parts.push(`${delayedPlayer.name}優先ジェシー523`);
+      }
     }
 
     result = parts.join('\n');
@@ -76,7 +84,7 @@
 <div class="calc">
   <div class="field">
     <label>セット名</label>
-    <input type="text" bind:value={setName} placeholder="南砲台" />
+    <input type="text" bind:value={setName} placeholder="南砲台" autocomplete="off" />
   </div>
 
   <table class="players">
@@ -90,7 +98,7 @@
     <tbody>
       {#each players as player, i}
         <tr>
-          <td><input type="text" bind:value={player.name} placeholder="名前" /></td>
+          <td><input type="text" bind:value={player.name} placeholder="呼び名" autocomplete="off" /></td>
           <td><input type="number" bind:value={player.seconds} placeholder="秒" min="1" inputmode="numeric" /></td>
           <td class="radio-cell">
             <input
@@ -107,6 +115,18 @@
 
   {#if delayIndex !== null}
     <button class="clear-btn" on:click={() => (delayIndex = null)}>1秒遅れ解除</button>
+  {/if}
+
+  <label class="urgent-label">
+    <input type="checkbox" bind:checked={urgent} />
+    お急ぎモード（30秒）
+  </label>
+
+  {#if delayIndex !== null}
+    <label class="urgent-label">
+      <input type="checkbox" bind:checked={defense} />
+      防衛に移行
+    </label>
   {/if}
 
   <button class="calc-btn" on:click={calculate}>計算する</button>
@@ -187,6 +207,20 @@
   }
 
   .radio-cell input[type="radio"] {
+    width: 1.2rem;
+    height: 1.2rem;
+  }
+
+  .urgent-label {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-bottom: 0.75rem;
+    font-size: 0.95rem;
+    cursor: pointer;
+  }
+
+  .urgent-label input[type="checkbox"] {
     width: 1.2rem;
     height: 1.2rem;
   }
