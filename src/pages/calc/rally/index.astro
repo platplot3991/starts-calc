@@ -1,0 +1,28 @@
+---
+import StartsCalc from '@/components/StartsCalc.svelte';
+---
+
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width" />
+    <title>集結タイミング計算機</title>
+  </head>
+  <body>
+    <h1>集結タイミング計算機</h1>
+    <StartsCalc client:load />
+  </body>
+</html>
+
+<style>
+  body {
+    margin: 0;
+    padding: 1rem;
+  }
+  h1 {
+    text-align: center;
+    font-size: 1.3rem;
+    margin-bottom: 1.5rem;
+  }
+</style>
