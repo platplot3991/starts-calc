@@ -71,7 +71,7 @@
 <div class="calc">
   <div class="field">
     <label>セット名</label>
-    <input type="text" bind:value={setName} placeholder="例: 第1波" />
+    <input type="text" bind:value={setName} placeholder="南砲台" />
   </div>
 
   <table class="players">
