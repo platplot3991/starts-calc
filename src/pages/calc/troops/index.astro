@@ -1,0 +1,28 @@
+---
+import TroopsCalc from '@/components/TroopsCalc.svelte';
+---
+
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width" />
+    <title>兵士訓練計算機</title>
+  </head>
+  <body>
+    <h1>兵士訓練計算機</h1>
+    <TroopsCalc client:load />
+  </body>
+</html>
+
+<style>
+  body {
+    margin: 0;
+    padding: 1rem;
+  }
+  h1 {
+    text-align: center;
+    font-size: 1.3rem;
+    margin-bottom: 1.5rem;
+  }
+</style>
