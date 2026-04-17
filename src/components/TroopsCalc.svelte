@@ -4,24 +4,74 @@
 
   let targetPower = '120000';
   let selectedTypes: TroopType[] = [...TROOP_TYPES];
-  let mode: 'common' | 'individual' = 'common';
+  let mode: 'common' | 'scheduler' = 'common';
 
   // 共通入力
   let commonPower = '';
   let commonMax = '';
   let commonTime = '';
 
-  // 個別入力
-  type TroopParams = { power: string; max: string; time: string };
-  let troopParams: Record<TroopType, TroopParams> = {
-    盾: { power: '', max: '', time: '' },
-    槍: { power: '', max: '', time: '' },
-    弓: { power: '', max: '', time: '' },
+  // スケジューラー入力
+  type BlockData = { count: string; power: string; time: string };
+  type SchedulerTypeData = { blocks: BlockData[] };
+  let schedulerData: Record<TroopType, SchedulerTypeData> = {
+    盾: { blocks: [{ count: '', power: '', time: '' }] },
+    槍: { blocks: [{ count: '', power: '', time: '' }] },
+    弓: { blocks: [{ count: '', power: '', time: '' }] },
   };
 
+  function forceUpdate() {
+    schedulerData = schedulerData;
+  }
+
+  function moveBlock(type: TroopType, from: number, to: number) {
+    const blocks = [...schedulerData[type].blocks];
+    const [item] = blocks.splice(from, 1);
+    blocks.splice(to, 0, item);
+    schedulerData[type].blocks = blocks;
+    schedulerData = schedulerData;
+  }
+
+  $: typeStats = (() => {
+    const stats: Record<TroopType, { count: number; power: number; time: number }> = {
+      盾: { count: 0, power: 0, time: 0 },
+      槍: { count: 0, power: 0, time: 0 },
+      弓: { count: 0, power: 0, time: 0 },
+    };
+    for (const type of TROOP_TYPES) {
+      for (const block of schedulerData[type].blocks) {
+        const c = parseInt(block.count);
+        const p = parseFloat(block.power);
+        const t = parseFloat(block.time);
+        if (isNaN(c) || c <= 0) continue;
+        stats[type].count += c;
+        if (!isNaN(p) && p > 0) stats[type].power += c * p;
+        if (!isNaN(t) && t > 0) stats[type].time += Math.ceil(c * t / 60);
+      }
+    }
+    return stats;
+  })();
+
+  $: totalPower = selectedTypes.reduce((sum, type) => sum + typeStats[type].power, 0);
+
+  $: targetNum = parseFloat(targetPower);
+  $: remaining = isNaN(targetNum) ? 0 : Math.max(0, targetNum - totalPower);
+  $: achieved = !isNaN(targetNum) && targetNum > 0 && totalPower >= targetNum;
+  $: progressPct = isNaN(targetNum) || targetNum <= 0 ? 0 : Math.min(100, (totalPower / targetNum) * 100);
+
+  function addBlock(type: TroopType) {
+    schedulerData[type].blocks = [...schedulerData[type].blocks, { count: '', power: '', time: '' }];
+    schedulerData = schedulerData;
+  }
+
+  function removeBlock(type: TroopType, idx: number) {
+    schedulerData[type].blocks = schedulerData[type].blocks.filter((_, i) => i !== idx);
+    schedulerData = schedulerData;
+  }
+
+  // 共通モード
   type RoundInfo = { count: number; time: number | null };
   type Result = { type: TroopType; needed: number; rounds: RoundInfo[]; tooMany: boolean };
-
   let results: Result[] = [];
   let showHours = false;
 
@@ -46,24 +96,17 @@
     const target = parseFloat(targetPower);
     if (isNaN(target) || selectedTypes.length === 0) { results = []; return; }
 
-    // 各兵種のパラメータを解析
     type Params = { type: TroopType; ppt: number; max: number; time: number };
     const parsed: Params[] = selectedTypes.map(type => {
-      const p = mode === 'common'
-        ? { power: commonPower, max: commonMax, time: commonTime }
-        : troopParams[type];
+      const p = { power: commonPower, max: commonMax, time: commonTime };
       return { type, ppt: parseFloat(p.power), max: parseInt(p.max), time: parseFloat(p.time) };
     }).filter(p => !isNaN(p.ppt) && p.ppt > 0 && !isNaN(p.max) && p.max > 0 && !isNaN(p.time) && p.time > 0);
 
     if (parsed.length === 0) { results = []; return; }
 
-    // 最短バッチ時間
     const minTime = Math.min(...parsed.map(p => p.time));
-
-    // 1ラウンドで訓練できる人数（最短基準に比例）
     const roundCapacity = (p: Params) => Math.floor(p.max * (minTime / p.time));
 
-    // ラウンドごとに計算（最大3回）
     const troopCounts: Record<TroopType, number[]> = { 盾: [], 槍: [], 弓: [] };
     let remaining = target;
     let tooMany = false;
@@ -71,20 +114,16 @@
     for (let round = 0; round < 6; round++) {
       if (remaining <= 0) break;
 
-      // このラウンドで得られる総力
       const roundPower = parsed.reduce((sum, p) => sum + roundCapacity(p) * p.ppt, 0);
-
       if (roundPower <= 0) break;
 
       if (remaining <= roundPower) {
-        // このラウンドで完結: 比例スケールダウン
         const scale = remaining / roundPower;
         for (const p of parsed) {
           troopCounts[p.type].push(Math.ceil(roundCapacity(p) * scale));
         }
         remaining = 0;
       } else {
-        // フル訓練
         for (const p of parsed) {
           troopCounts[p.type].push(roundCapacity(p));
         }
@@ -94,11 +133,9 @@
 
     if (remaining > 0) tooMany = true;
 
-
     results = parsed.map(p => {
       const rounds: RoundInfo[] = troopCounts[p.type].map(count => ({
         count,
-        // 秒で計算して分に変換（切り上げ）
         time: Math.ceil((count * p.time) / 60),
       }));
       const needed = rounds.reduce((s, r) => s + r.count, 0);
@@ -113,7 +150,6 @@
   let textCopied = false;
 
   function pad(s: string, width: number) {
-    // 全角文字は2文字分として計算
     const len = [...s].reduce((n, c) => n + (c.match(/[^\x00-\x7F]/) ? 2 : 1), 0);
     return s + ' '.repeat(Math.max(0, width - len));
   }
@@ -133,6 +169,35 @@
     await navigator.clipboard.writeText(buildText());
     textCopied = true;
     setTimeout(() => (textCopied = false), 1500);
+  }
+
+  // スケジューラーテキスト出力
+  $: schedulerText = (() => {
+    const lines: string[] = [];
+    for (const type of selectedTypes) {
+      const d = schedulerData[type];
+      const valid = d.blocks.filter(b => parseInt(b.count) > 0 && parseFloat(b.power) > 0);
+      if (valid.length === 0) continue;
+      const { count, time } = typeStats[type];
+      const timeStr = time > 0 ? ` 約${time}分` : '';
+      lines.push(`【${type}】${count}人${timeStr}`);
+      valid.forEach((b, i) => {
+        const c = parseInt(b.count);
+        const t = parseFloat(b.time);
+        const tStr = !isNaN(t) && t > 0 ? ` 約${Math.ceil(c * t / 60)}分` : '';
+        lines.push(`  ${i + 1}回目: ${c}人${tStr}`);
+      });
+    }
+    const t = isNaN(targetNum) ? '?' : targetNum.toLocaleString();
+    lines.push(`合計: ${totalPower.toLocaleString()} / ${t}`);
+    return lines.join('\n');
+  })();
+
+  let schedulerCopied = false;
+  async function copySchedulerText() {
+    await navigator.clipboard.writeText(schedulerText);
+    schedulerCopied = true;
+    setTimeout(() => (schedulerCopied = false), 1500);
   }
 </script>
 
@@ -157,7 +222,7 @@
       <input type="radio" bind:group={mode} value="common" /> 共通
     </label>
     <label class="check-label">
-      <input type="radio" bind:group={mode} value="individual" /> 個別
+      <input type="radio" bind:group={mode} value="scheduler" /> スケジューラー
     </label>
   </div>
 
@@ -174,79 +239,162 @@
       <label>1人あたり訓練時間(秒)</label>
       <input type="number" bind:value={commonTime} placeholder="例: 49" inputmode="numeric" autocomplete="off" />
     </div>
-  {:else}
-    <table class="input-table">
-      <thead>
-        <tr>
-          <th>兵種</th>
-          <th>総力/人</th>
-          <th>最大人数</th>
-          <th>1人訓練(秒)</th>
-        </tr>
-      </thead>
-      <tbody>
-        {#each TROOP_TYPES as type}
-          {#if selectedTypes.includes(type)}
-            <tr>
-              <td class="type-cell">{type}</td>
-              <td><input type="number" bind:value={troopParams[type].power} placeholder="50" inputmode="numeric" autocomplete="off" /></td>
-              <td><input type="number" bind:value={troopParams[type].max} placeholder="600" inputmode="numeric" autocomplete="off" /></td>
-              <td><input type="number" bind:value={troopParams[type].time} placeholder="49" inputmode="numeric" autocomplete="off" /></td>
-            </tr>
+
+    <button class="calc-btn" on:click={calculate}>計算する</button>
+
+    {#if results.length > 0}
+      <label class="check-label" style="margin-bottom: 0.75rem;">
+        <input type="checkbox" bind:checked={showHours} />
+        時間&分で表示
+      </label>
+
+      {#if results[0].tooMany}
+        <p class="too-many">回数が多すぎます（7回以上必要）</p>
+      {:else}
+        <div class="table-wrap">
+          {#if results[0].rounds.length > 3}
+            <div class="scroll-hint">›</div>
           {/if}
-        {/each}
-      </tbody>
-    </table>
-  {/if}
-
-  <button class="calc-btn" on:click={calculate}>計算する</button>
-
-  {#if results.length > 0}
-    <label class="check-label" style="margin-bottom: 0.75rem;">
-      <input type="checkbox" bind:checked={showHours} />
-      時間&分で表示
-    </label>
-
-    {#if results[0].tooMany}
-      <p class="too-many">回数が多すぎます（7回以上必要）</p>
-    {:else}
-      <div class="table-wrap">
-        {#if results[0].rounds.length > 3}
-          <div class="scroll-hint">›</div>
-        {/if}
-      <div class="table-scroll">
-        <table class="results">
-          <thead>
-            <tr>
-              <th>兵種</th>
-              <th>必要</th>
-              {#each results[0].rounds as round, i}
-                <th>{i + 1}回目<br /><small>{formatTime(round.time!)}</small></th>
-              {/each}
-            </tr>
-          </thead>
-          <tbody>
-            {#each results as r}
-              <tr>
-                <td>{r.type}</td>
-                <td class="copyable" on:click={() => copyNumber(r.needed)}>{r.needed}人</td>
-                {#each r.rounds as round, i}
-                  <td class="copyable" on:click={() => copyNumber(round.count)}>
-                    {round.count}人
-                  </td>
+          <div class="table-scroll">
+            <table class="results">
+              <thead>
+                <tr>
+                  <th>兵種</th>
+                  <th>必要</th>
+                  {#each results[0].rounds as round, i}
+                    <th>{i + 1}回目<br /><small>{formatTime(round.time!)}</small></th>
+                  {/each}
+                </tr>
+              </thead>
+              <tbody>
+                {#each results as r}
+                  <tr>
+                    <td>{r.type}</td>
+                    <td class="copyable" on:click={() => copyNumber(r.needed)}>{r.needed}人</td>
+                    {#each r.rounds as round}
+                      <td class="copyable" on:click={() => copyNumber(round.count)}>
+                        {round.count}人
+                      </td>
+                    {/each}
+                  </tr>
                 {/each}
-              </tr>
-            {/each}
-          </tbody>
-        </table>
-      </div>
-      </div>
-      <small class="approx">※時間は概算</small>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <small class="approx">※時間は概算</small>
 
+        <div class="text-result">
+          <pre>{buildText()}</pre>
+          <button class="copy-btn" on:click={copyText}>
+            {textCopied ? 'コピーした！' : 'テキストコピー'}
+          </button>
+        </div>
+      {/if}
+    {/if}
+
+  {:else}
+    <!-- スケジューラーモード -->
+    <div class="sched-summary" class:achieved>
+      <div class="sched-summary-row">
+        <span class="sched-total">{totalPower.toLocaleString()}</span>
+        <span class="sched-sep">/</span>
+        <span class="sched-target">{isNaN(targetNum) ? '?' : targetNum.toLocaleString()}</span>
+        {#if achieved}
+          <span class="badge-ok">達成！</span>
+        {/if}
+      </div>
+      <div class="progress-track">
+        <div class="progress-fill" style="width: {progressPct}%"></div>
+      </div>
+      {#if !achieved && totalPower > 0}
+        <div class="sched-remaining">残り {remaining.toLocaleString()}</div>
+      {/if}
+    </div>
+
+    <div class="scheduler">
+      {#each TROOP_TYPES as type}
+        {#if selectedTypes.includes(type)}
+          <div class="type-section">
+            <div class="type-header">
+              <span class="type-name">{type}</span>
+              <button class="add-btn" on:click={() => addBlock(type)}>+ 追加</button>
+            </div>
+
+            <div class="block-col-labels">
+              <span class="block-order-spacer"></span>
+              <span class="label-col">訓練人数</span>
+              <span class="label-col">総力/人</span>
+              <span class="label-col">秒/人</span>
+            </div>
+
+            {#each schedulerData[type].blocks as block, i}
+              <div class="block-wrap">
+                <div class="block-row">
+                  <div class="block-order">
+                    <button class="order-btn" on:click={() => moveBlock(type, i, i - 1)} disabled={i === 0}>▲</button>
+                    <button class="order-btn" on:click={() => moveBlock(type, i, i + 1)} disabled={i === schedulerData[type].blocks.length - 1}>▼</button>
+                  </div>
+                  <input
+                    class="block-input"
+                    type="number"
+                    bind:value={schedulerData[type].blocks[i].count}
+                    on:input={forceUpdate}
+                    placeholder="600"
+                    inputmode="numeric"
+                    autocomplete="off"
+                  />
+                  <input
+                    class="block-input"
+                    type="number"
+                    bind:value={schedulerData[type].blocks[i].power}
+                    on:input={forceUpdate}
+                    placeholder="50"
+                    inputmode="numeric"
+                    autocomplete="off"
+                  />
+                  <input
+                    class="block-input"
+                    type="number"
+                    bind:value={schedulerData[type].blocks[i].time}
+                    on:input={forceUpdate}
+                    placeholder="49"
+                    inputmode="numeric"
+                    autocomplete="off"
+                  />
+                  <button class="del-btn" on:click={() => removeBlock(type, i)}>−</button>
+                </div>
+                {#if (parseInt(schedulerData[type].blocks[i].count) > 0 && parseFloat(schedulerData[type].blocks[i].power) > 0) || (parseInt(schedulerData[type].blocks[i].count) > 0 && parseFloat(schedulerData[type].blocks[i].time) > 0)}
+                  <div class="block-info">
+                    {#if parseInt(schedulerData[type].blocks[i].count) > 0 && parseFloat(schedulerData[type].blocks[i].power) > 0}
+                      <span class="block-power-val">= {(parseInt(schedulerData[type].blocks[i].count) * parseFloat(schedulerData[type].blocks[i].power)).toLocaleString()}</span>
+                    {/if}
+                    {#if parseInt(schedulerData[type].blocks[i].count) > 0 && parseFloat(schedulerData[type].blocks[i].time) > 0}
+                      <span class="block-time-val">約{Math.ceil(parseInt(schedulerData[type].blocks[i].count) * parseFloat(schedulerData[type].blocks[i].time) / 60)}分</span>
+                    {/if}
+                  </div>
+                {/if}
+              </div>
+            {/each}
+
+            {#if typeStats[type].count > 0}
+              <div class="type-subtotal">
+                計 {typeStats[type].count.toLocaleString()}人 / {typeStats[type].power.toLocaleString()}総力
+                {#if typeStats[type].time > 0}
+                  / 約{typeStats[type].time}分
+                {/if}
+              </div>
+            {/if}
+          </div>
+        {/if}
+      {/each}
+    </div>
+
+    {#if totalPower > 0}
       <div class="text-result">
-        <pre>{buildText()}</pre>
-        <button class="copy-btn" on:click={copyText}>
-          {textCopied ? 'コピーした！' : 'テキストコピー'}
+        <pre>{schedulerText}</pre>
+        <button class="copy-btn" on:click={copySchedulerText}>
+          {schedulerCopied ? 'コピーした！' : 'テキストコピー'}
         </button>
       </div>
     {/if}
@@ -312,41 +460,6 @@
     height: 1.2rem;
   }
 
-  .input-table {
-    width: 100%;
-    border-collapse: collapse;
-    margin-bottom: 0.75rem;
-    font-size: 0.85rem;
-  }
-
-  .input-table th {
-    background: #e8e8e8;
-    padding: 0.3rem 0.2rem;
-    text-align: center;
-    border: 1px solid #ccc;
-    font-size: 0.78rem;
-  }
-
-  .input-table td {
-    border: 1px solid #ddd;
-    padding: 0.2rem;
-    text-align: center;
-  }
-
-  .input-table td.type-cell {
-    font-weight: bold;
-    background: #f5f5f5;
-  }
-
-  .input-table input {
-    width: 100%;
-    padding: 0.4rem 0.2rem;
-    font-size: 0.9rem;
-    border: none;
-    text-align: center;
-    box-sizing: border-box;
-  }
-
   .calc-btn {
     display: block;
     width: 100%;
@@ -361,19 +474,224 @@
     margin-bottom: 1rem;
   }
 
-  .round-times {
+  /* スケジューラーサマリー */
+  .sched-summary {
+    background: #f0f4f8;
+    border-radius: 10px;
+    padding: 0.75rem;
+    margin-bottom: 1rem;
+    transition: background 0.3s;
+  }
+
+  .sched-summary.achieved {
+    background: #e6f4ea;
+  }
+
+  .sched-summary-row {
+    display: flex;
+    align-items: baseline;
+    gap: 0.4rem;
+    margin-bottom: 0.4rem;
+  }
+
+  .sched-total {
+    font-size: 1.4rem;
+    font-weight: bold;
+    color: #333;
+  }
+
+  .sched-sep {
+    color: #999;
+    font-size: 1rem;
+  }
+
+  .sched-target {
+    font-size: 1rem;
+    color: #666;
+  }
+
+  .badge-ok {
+    margin-left: 0.3rem;
+    background: #27ae60;
+    color: white;
+    font-size: 0.85rem;
+    font-weight: bold;
+    padding: 0.1rem 0.5rem;
+    border-radius: 12px;
+  }
+
+  .progress-track {
+    height: 8px;
+    background: #ddd;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+
+  .progress-fill {
+    height: 100%;
+    background: #4a90d9;
+    border-radius: 4px;
+    transition: width 0.2s ease;
+  }
+
+  .sched-summary.achieved .progress-fill {
+    background: #27ae60;
+  }
+
+  .sched-remaining {
+    margin-top: 0.3rem;
+    font-size: 0.85rem;
+    color: #666;
+    text-align: right;
+  }
+
+  .block-order {
     display: flex;
     flex-direction: column;
-    gap: 0.3rem;
-    margin-bottom: 0.75rem;
-    font-size: 0.9rem;
-    color: #444;
+    gap: 1px;
+    flex-shrink: 0;
   }
 
-  .round-times span {
+  .order-btn {
+    width: 24px;
+    height: 18px;
+    padding: 0;
+    font-size: 0.55rem;
+    background: #e8e8e8;
+    color: #555;
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+    line-height: 1;
+  }
+
+  .order-btn:disabled {
+    opacity: 0.25;
+    cursor: default;
+  }
+
+  /* スケジューラー本体 */
+  .scheduler {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+  }
+
+  .type-section {
+    background: #fafafa;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 0.5rem 0.6rem;
+  }
+
+  .type-header {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-bottom: 0.4rem;
+  }
+
+  .type-name {
     font-weight: bold;
+    font-size: 1rem;
+    width: 1.5rem;
+    flex-shrink: 0;
   }
 
+  .add-btn {
+    margin-left: auto;
+    padding: 0.3rem 0.6rem;
+    font-size: 0.85rem;
+    background: #4a90d9;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .block-col-labels {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    margin-bottom: 0.15rem;
+  }
+
+  .block-order-spacer {
+    width: 24px;
+    flex-shrink: 0;
+  }
+
+  .label-col {
+    font-size: 0.7rem;
+    color: #999;
+    width: 62px;
+    text-align: center;
+    flex-shrink: 0;
+  }
+
+  .block-wrap {
+    margin-bottom: 0.35rem;
+  }
+
+  .block-row {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+  }
+
+  .block-input {
+    width: 62px;
+    padding: 0.35rem 0.3rem;
+    font-size: 0.9rem;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    text-align: center;
+    box-sizing: border-box;
+  }
+
+  .del-btn {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    font-size: 1rem;
+    background: #e0e0e0;
+    color: #555;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    flex-shrink: 0;
+    line-height: 1;
+  }
+
+  .block-info {
+    display: flex;
+    gap: 0.5rem;
+    padding-left: calc(24px + 0.3rem);
+    margin-top: 0.1rem;
+  }
+
+  .block-power-val {
+    font-size: 0.75rem;
+    color: #4a90d9;
+  }
+
+  .block-time-val {
+    font-size: 0.75rem;
+    color: #888;
+  }
+
+  .type-subtotal {
+    margin-top: 0.3rem;
+    font-size: 0.8rem;
+    color: #555;
+    text-align: right;
+    border-top: 1px solid #e8e8e8;
+    padding-top: 0.3rem;
+  }
+
+  /* 共通: 結果テーブル */
   .text-result {
     margin-top: 0.75rem;
     background: #f5f5f5;
