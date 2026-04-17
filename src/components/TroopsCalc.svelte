@@ -68,7 +68,7 @@
     let remaining = target;
     let tooMany = false;
 
-    for (let round = 0; round < 3; round++) {
+    for (let round = 0; round < 6; round++) {
       if (remaining <= 0) break;
 
       // このラウンドで得られる総力
@@ -94,6 +94,7 @@
 
     if (remaining > 0) tooMany = true;
 
+
     results = parsed.map(p => {
       const rounds: RoundInfo[] = troopCounts[p.type].map(count => ({
         count,
@@ -107,6 +108,31 @@
 
   function copyNumber(value: number) {
     navigator.clipboard.writeText(String(value));
+  }
+
+  let textCopied = false;
+
+  function pad(s: string, width: number) {
+    // 全角文字は2文字分として計算
+    const len = [...s].reduce((n, c) => n + (c.match(/[^\x00-\x7F]/) ? 2 : 1), 0);
+    return s + ' '.repeat(Math.max(0, width - len));
+  }
+
+  function buildText(): string {
+    if (results.length === 0) return '';
+    const COL = 7;
+    const header = pad('　', 4) + pad('必要', COL) + results[0].rounds.map((_, i) => pad(`${i+1}回目`, COL)).join('');
+    const rows = results.map(r =>
+      pad(r.type, 4) + pad(`${r.needed}人`, COL) + r.rounds.map(rd => pad(`${rd.count}人`, COL)).join('')
+    );
+    const footer = pad('目安', 4) + pad('　', COL) + results[0].rounds.map(rd => pad(`${rd.time}m`, COL)).join('');
+    return [header, ...rows, footer].join('\n');
+  }
+
+  async function copyText() {
+    await navigator.clipboard.writeText(buildText());
+    textCopied = true;
+    setTimeout(() => (textCopied = false), 1500);
   }
 </script>
 
@@ -182,45 +208,47 @@
     </label>
 
     {#if results[0].tooMany}
-      <p class="too-many">回数が多すぎます（4回以上必要）</p>
+      <p class="too-many">回数が多すぎます（7回以上必要）</p>
     {:else}
-      <div class="round-times">
-        {#each [0, 1, 2] as i}
-          {#if results[0].rounds[i]}
-            <span>{i + 1}回目: {formatTime(results[0].rounds[i].time!)}</span>
-          {/if}
-        {/each}
-        <small class="approx">※概算</small>
-      </div>
-
-      <table class="results">
-        <thead>
-          <tr>
-            <th>兵種</th>
-            <th>必要</th>
-            <th>1回目</th>
-            <th>2回目</th>
-            <th>3回目</th>
-          </tr>
-        </thead>
-        <tbody>
-          {#each results as r}
+      <div class="table-wrap">
+        {#if results[0].rounds.length > 3}
+          <div class="scroll-hint">›</div>
+        {/if}
+      <div class="table-scroll">
+        <table class="results">
+          <thead>
             <tr>
-              <td>{r.type}</td>
-              <td class="copyable" on:click={() => copyNumber(r.needed)}>{r.needed}人</td>
-              {#each [0, 1, 2] as i}
-                <td class={r.rounds[i] ? 'copyable' : ''} on:click={() => r.rounds[i] && copyNumber(r.rounds[i].count)}>
-                  {#if r.rounds[i]}
-                    {r.rounds[i].count}人
-                  {:else}
-                    -
-                  {/if}
-                </td>
+              <th>兵種</th>
+              <th>必要</th>
+              {#each results[0].rounds as round, i}
+                <th>{i + 1}回目<br /><small>{formatTime(round.time!)}</small></th>
               {/each}
             </tr>
-          {/each}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {#each results as r}
+              <tr>
+                <td>{r.type}</td>
+                <td class="copyable" on:click={() => copyNumber(r.needed)}>{r.needed}人</td>
+                {#each r.rounds as round, i}
+                  <td class="copyable" on:click={() => copyNumber(round.count)}>
+                    {round.count}人
+                  </td>
+                {/each}
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+      </div>
+      <small class="approx">※時間は概算</small>
+
+      <div class="text-result">
+        <pre>{buildText()}</pre>
+        <button class="copy-btn" on:click={copyText}>
+          {textCopied ? 'コピーした！' : 'テキストコピー'}
+        </button>
+      </div>
     {/if}
   {/if}
 </div>
@@ -346,10 +374,63 @@
     font-weight: bold;
   }
 
+  .text-result {
+    margin-top: 0.75rem;
+    background: #f5f5f5;
+    border-radius: 8px;
+    padding: 0.75rem;
+  }
+
+  .text-result pre {
+    margin: 0 0 0.75rem;
+    font-size: 0.85rem;
+    line-height: 1.6;
+    overflow-x: auto;
+  }
+
+  .copy-btn {
+    display: block;
+    width: 100%;
+    padding: 0.6rem;
+    font-size: 1rem;
+    background: #555;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+
   .approx {
     color: #999;
     font-size: 0.8rem;
     font-weight: normal;
+  }
+
+  .table-wrap {
+    position: relative;
+  }
+
+  .scroll-hint {
+    position: absolute;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 1.5rem;
+    color: #4a90d9;
+    pointer-events: none;
+    animation: nudge 1.2s ease-in-out infinite;
+    z-index: 1;
+  }
+
+  @keyframes nudge {
+    0%, 100% { transform: translateY(-50%) translateX(0); }
+    50% { transform: translateY(-50%) translateX(4px); }
+  }
+
+  .table-scroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    margin-bottom: 0.5rem;
   }
 
   .too-many {
@@ -359,17 +440,41 @@
   }
 
   .results {
-    width: 100%;
     border-collapse: collapse;
     font-size: 0.85rem;
   }
 
-  .results th {
-    background: #e8e8e8;
+  .results th,
+  .results td {
+    width: 64px;
+    min-width: 64px;
     padding: 0.4rem 0.2rem;
     text-align: center;
-    border: 1px solid #ccc;
+    border: 1px solid #ddd;
+    white-space: nowrap;
+  }
+
+  .results th:first-child,
+  .results td:first-child {
+    width: 40px;
+    min-width: 40px;
+    position: sticky;
+    left: 0;
+    z-index: 1;
+  }
+
+  .results th {
+    background: #e8e8e8;
+    border-color: #ccc;
     font-size: 0.8rem;
+  }
+
+  .results th:first-child {
+    background: #e8e8e8;
+  }
+
+  .results td:first-child {
+    background: #f5f5f5;
   }
 
   .results td.copyable {
