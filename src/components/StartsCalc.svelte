@@ -2,14 +2,17 @@
   type Player = {
     name: string;
     seconds: string;
+    active: boolean;
   };
 
   let setName = '';
   let players: Player[] = [
-    { name: '', seconds: '' },
-    { name: '', seconds: '' },
-    { name: '', seconds: '' },
-    { name: '', seconds: '' },
+    { name: '', seconds: '', active: true },
+    { name: '', seconds: '', active: true },
+    { name: '', seconds: '', active: true },
+    { name: '', seconds: '', active: true },
+    { name: '', seconds: '', active: true },
+    { name: '', seconds: '', active: true },
   ];
   let delayIndex: number | null = null;
   let urgent = false;
@@ -30,14 +33,14 @@
   function calculate() {
     const valid = players
       .map((p, i) => ({ name: p.name || `P${i + 1}`, sec: parseInt(p.seconds), delay: i === delayIndex }))
-      .filter((_, i) => String(players[i].seconds).trim() !== '');
+      .filter((_, i) => players[i].active && String(players[i].seconds).trim() !== '');
 
     if (valid.length < 2) {
-      result = '2人以上入力してね';
+      result = '2人以上チェックしてね';
       return;
     }
     if (valid.some(p => isNaN(p.sec) || p.sec <= 0)) {
-      result = '行軍時間は正の整数で入力してね';
+      result = 'チェック中のプレイヤーの行軍時間を正の整数で入力してね';
       return;
     }
 
@@ -90,6 +93,7 @@
   <table class="players">
     <thead>
       <tr>
+        <th>参加</th>
         <th>名前</th>
         <th>行軍(秒)</th>
         <th>1秒遅れ</th>
@@ -97,15 +101,19 @@
     </thead>
     <tbody>
       {#each players as player, i}
-        <tr>
-          <td><input type="text" bind:value={player.name} placeholder="呼び名" autocomplete="off" /></td>
-          <td><input type="number" bind:value={player.seconds} placeholder="秒" min="1" inputmode="numeric" /></td>
+        <tr class:inactive={!player.active}>
+          <td class="check-cell">
+            <input type="checkbox" bind:checked={player.active} />
+          </td>
+          <td><input type="text" bind:value={player.name} placeholder="呼び名" autocomplete="off" disabled={!player.active} /></td>
+          <td><input type="text" bind:value={player.seconds} placeholder="秒" inputmode="numeric" disabled={!player.active} /></td>
           <td class="radio-cell">
             <input
               type="radio"
               name="delay"
               value={i}
               bind:group={delayIndex}
+              disabled={!player.active}
             />
           </td>
         </tr>
@@ -192,8 +200,7 @@
     vertical-align: middle;
   }
 
-  .players td input[type="text"],
-  .players td input[type="number"] {
+  .players td input[type="text"] {
     width: 100%;
     padding: 0.5rem;
     font-size: 1rem;
@@ -202,13 +209,19 @@
     box-sizing: border-box;
   }
 
+  .check-cell,
   .radio-cell {
     text-align: center;
   }
 
+  .check-cell input[type="checkbox"],
   .radio-cell input[type="radio"] {
     width: 1.2rem;
     height: 1.2rem;
+  }
+
+  tr.inactive td input {
+    opacity: 0.35;
   }
 
   .urgent-label {
