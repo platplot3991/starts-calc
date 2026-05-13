@@ -11,9 +11,7 @@
     "preview": "astro preview",
     "astro": "astro"
   },
-  "pnpm": {
-    "onlyBuiltDependencies": ["esbuild", "sharp"]
-  },
+  "packageManager": "pnpm@10.22.0",
   "dependencies": {
     "@astrojs/svelte": "^8.0.5",
     "astro": "^6.1.6",
