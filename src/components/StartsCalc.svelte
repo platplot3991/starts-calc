@@ -1,9 +1,13 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
+
   type Player = {
     name: string;
     seconds: string;
     active: boolean;
   };
+
+  const STORAGE_KEY = 'starts-calc';
 
   let setName = '';
   let players: Player[] = [
@@ -17,14 +21,38 @@
   let delayIndex: number | null = null;
   let urgent = false;
   let defense = false;
+  let buzzerbeat = false;
 
   let result = '';
   let copied = false;
+  let mounted = false;
+
+  $: validCount = players.filter(p => p.active && String(p.seconds).trim() !== '').length;
+  $: canDelay = !buzzerbeat && validCount >= 2;
+
+  onMount(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        const s = JSON.parse(saved);
+        if (s.setName !== undefined) setName = s.setName;
+        if (Array.isArray(s.players) && s.players.length === 6) players = s.players;
+        if (s.delayIndex !== undefined) delayIndex = s.delayIndex;
+        if (s.urgent !== undefined) urgent = s.urgent;
+        if (s.defense !== undefined) defense = s.defense;
+        if (s.buzzerbeat !== undefined) buzzerbeat = s.buzzerbeat;
+      }
+    } catch {}
+    mounted = true;
+  });
+
+  $: stateJson = JSON.stringify({ setName, players, delayIndex, urgent, defense, buzzerbeat });
+  $: if (mounted) localStorage.setItem(STORAGE_KEY, stateJson);
 
   function formatTime(baseMinSec: number, offsetSeconds: number): string {
     const baseMin = Math.floor(baseMinSec / 100);
     const baseSec = baseMinSec % 100;
-    let totalSec = baseMin * 60 + baseSec + offsetSeconds;
+    const totalSec = baseMin * 60 + baseSec + offsetSeconds;
     const min = Math.floor(totalSec / 60) % 100;
     const sec = totalSec % 60;
     return String(min).padStart(2, '0') + String(sec).padStart(2, '0');
@@ -35,8 +63,8 @@
       .map((p, i) => ({ name: p.name || `P${i + 1}`, sec: parseInt(p.seconds), delay: i === delayIndex }))
       .filter((_, i) => players[i].active && String(players[i].seconds).trim() !== '');
 
-    if (valid.length < 2) {
-      result = '2人以上チェックしてね';
+    if (valid.length < 1) {
+      result = '1人以上チェックしてね';
       return;
     }
     if (valid.some(p => isNaN(p.sec) || p.sec <= 0)) {
@@ -45,25 +73,53 @@
     }
 
     const maxSec = Math.max(...valid.map(p => p.sec));
+    const delayedPlayer = valid.find(p => p.delay);
 
-    // 現在時刻+60秒（お急ぎ時は+30秒）を切り上げて次の分を集結時刻にする（UTC）
-    const nowMs = Date.now() + (urgent ? 30000 : 60000);
-    const targetMs = Math.ceil(nowMs / 60000) * 60000;
-    const baseMin = new Date(targetMs).getUTCMinutes();
-    const baseTime = baseMin * 100; // MMSS形式（秒は00）
+    let lines: string[];
+    let header = '';
 
-    const lines = [...valid]
-      .sort((a, b) => b.sec - a.sec)
-      .map(p => {
-        const diff = maxSec - p.sec + (p.delay ? 1 : 0);
-        return `${p.name}: ${formatTime(baseTime, diff)}`;
-      });
+    if (buzzerbeat) {
+      // 次のローカル時間 XX:59:59 を求める（maxSec + 120秒以上余裕があること）
+      const now = new Date();
+      const localNowSec = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
+      const localHourStart = now.getHours() * 3600;
+      let localTargetSec = localHourStart + 59 * 60 + 59;
+      if (localTargetSec - localNowSec < maxSec + 120) {
+        localTargetSec += 3600;
+      }
+      const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() / 1000;
+      const targetSec = midnight + localTargetSec;
+      const targetHour = Math.floor(localTargetSec / 3600) % 24;
+      header = `${String(targetHour).padStart(2, '0')}:59:59着弾（1分集結）`;
+
+      lines = [...valid]
+        .sort((a, b) => b.sec - a.sec)
+        .map(p => {
+          const startEpochSec = targetSec - p.sec - 60 + (p.delay ? 1 : 0);
+          const d = new Date(startEpochSec * 1000);
+          const time = String(d.getMinutes()).padStart(2, '0') + String(d.getSeconds()).padStart(2, '0');
+          return `${p.name}: ${time}`;
+        });
+    } else {
+      // 現在時刻+60秒（お急ぎ時は+30秒）を切り上げて次の分を集結時刻にする（UTC）
+      const nowMs = Date.now() + (urgent ? 30000 : 60000);
+      const targetMs = Math.ceil(nowMs / 60000) * 60000;
+      const baseMin = new Date(targetMs).getUTCMinutes();
+      const baseTime = baseMin * 100;
+
+      lines = [...valid]
+        .sort((a, b) => b.sec - a.sec)
+        .map(p => {
+          const diff = maxSec - p.sec + (p.delay ? 1 : 0);
+          return `${p.name}: ${formatTime(baseTime, diff)}`;
+        });
+    }
 
     const parts: string[] = [];
+    if (header) parts.push(header);
     if (setName.trim()) parts.push(setName.trim());
     parts.push(...lines);
 
-    const delayedPlayer = valid.find(p => p.delay);
     if (delayedPlayer) {
       parts.push('');
       if (defense) {
@@ -77,6 +133,16 @@
     result = parts.join('\n');
   }
 
+  function reset() {
+    setName = '';
+    players = Array.from({ length: 6 }, () => ({ name: '', seconds: '', active: true }));
+    delayIndex = null;
+    urgent = false;
+    defense = false;
+    result = '';
+    localStorage.removeItem(STORAGE_KEY);
+  }
+
   async function copyResult() {
     await navigator.clipboard.writeText(result);
     copied = true;
@@ -85,6 +151,14 @@
 </script>
 
 <div class="calc">
+  <div class="top-bar">
+    <div class="mode-tabs">
+      <button class="mode-tab" class:active={!buzzerbeat} on:click={() => { buzzerbeat = false; }}>通常</button>
+      <button class="mode-tab" class:active={buzzerbeat} on:click={() => { buzzerbeat = true; }}>ブザービート</button>
+    </div>
+    <button class="reset-btn" on:click={reset}>リセット</button>
+  </div>
+
   <div class="field">
     <label>セット名</label>
     <input type="text" bind:value={setName} placeholder="南砲台" autocomplete="off" />
@@ -96,7 +170,7 @@
         <th>参加</th>
         <th>名前</th>
         <th>行軍(秒)</th>
-        <th>1秒遅れ</th>
+        {#if !buzzerbeat}<th>1秒遅れ</th>{/if}
       </tr>
     </thead>
     <tbody>
@@ -107,30 +181,34 @@
           </td>
           <td><input type="text" bind:value={player.name} placeholder="呼び名" autocomplete="off" disabled={!player.active} /></td>
           <td><input type="text" bind:value={player.seconds} placeholder="秒" inputmode="numeric" disabled={!player.active} /></td>
+          {#if !buzzerbeat}
           <td class="radio-cell">
             <input
               type="radio"
               name="delay"
               value={i}
               bind:group={delayIndex}
-              disabled={!player.active}
+              disabled={!player.active || !canDelay}
             />
           </td>
+          {/if}
         </tr>
       {/each}
     </tbody>
   </table>
 
-  {#if delayIndex !== null}
+  {#if !buzzerbeat && delayIndex !== null}
     <button class="clear-btn" on:click={() => (delayIndex = null)}>1秒遅れ解除</button>
   {/if}
 
-  <label class="urgent-label">
-    <input type="checkbox" bind:checked={urgent} />
-    お急ぎモード（30秒）
-  </label>
+  {#if !buzzerbeat}
+    <label class="urgent-label">
+      <input type="checkbox" bind:checked={urgent} />
+      お急ぎモード（30秒）
+    </label>
+  {/if}
 
-  {#if delayIndex !== null}
+  {#if !buzzerbeat && delayIndex !== null}
     <label class="urgent-label">
       <input type="checkbox" bind:checked={defense} />
       防衛に移行
@@ -156,6 +234,48 @@
     padding: 0.75rem;
     font-family: sans-serif;
     font-size: 16px;
+  }
+
+  .top-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+  }
+
+  .mode-tabs {
+    display: flex;
+    flex: 1;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid #ddd;
+  }
+
+  .mode-tab {
+    flex: 1;
+    padding: 0.6rem;
+    font-size: 0.95rem;
+    font-weight: bold;
+    background: #f5f5f5;
+    color: #888;
+    border: none;
+    cursor: pointer;
+  }
+
+  .mode-tab.active {
+    background: #4a90d9;
+    color: white;
+  }
+
+  .reset-btn {
+    padding: 0.4rem 0.6rem;
+    font-size: 0.8rem;
+    background: none;
+    color: #bbb;
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    cursor: pointer;
+    white-space: nowrap;
   }
 
   .field {
