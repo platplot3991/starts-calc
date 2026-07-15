@@ -22,6 +22,7 @@
   let urgent = false;
   let defense = false;
   let buzzerbeat = false;
+  let rallyMinutes = 1;
 
   let result = '';
   let copied = false;
@@ -41,12 +42,13 @@
         if (s.urgent !== undefined) urgent = s.urgent;
         if (s.defense !== undefined) defense = s.defense;
         if (s.buzzerbeat !== undefined) buzzerbeat = s.buzzerbeat;
+        if (s.rallyMinutes !== undefined) rallyMinutes = s.rallyMinutes;
       }
     } catch {}
     mounted = true;
   });
 
-  $: stateJson = JSON.stringify({ setName, players, delayIndex, urgent, defense, buzzerbeat });
+  $: stateJson = JSON.stringify({ setName, players, delayIndex, urgent, defense, buzzerbeat, rallyMinutes });
   $: if (mounted) localStorage.setItem(STORAGE_KEY, stateJson);
 
   function formatTime(baseMinSec: number, offsetSeconds: number): string {
@@ -84,18 +86,19 @@
       const localNowSec = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
       const localHourStart = now.getHours() * 3600;
       let localTargetSec = localHourStart + 59 * 60 + 59;
-      if (localTargetSec - localNowSec < maxSec + 120) {
+      const rallySec = rallyMinutes * 60;
+      if (localTargetSec - localNowSec < maxSec + rallySec + 60) {
         localTargetSec += 3600;
       }
       const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() / 1000;
       const targetSec = midnight + localTargetSec;
       const targetHour = Math.floor(localTargetSec / 3600) % 24;
-      header = `${String(targetHour).padStart(2, '0')}:59:59着弾（1分集結）`;
+      header = `${String(targetHour).padStart(2, '0')}:59:59着弾（${rallyMinutes}分集結）`;
 
       lines = [...valid]
         .sort((a, b) => b.sec - a.sec)
         .map(p => {
-          const startEpochSec = targetSec - p.sec - 60 + (p.delay ? 1 : 0);
+          const startEpochSec = targetSec - p.sec - rallySec + (p.delay ? 1 : 0);
           const d = new Date(startEpochSec * 1000);
           const time = String(d.getMinutes()).padStart(2, '0') + String(d.getSeconds()).padStart(2, '0');
           return `${p.name}: ${time}`;
@@ -199,6 +202,16 @@
 
   {#if !buzzerbeat && delayIndex !== null}
     <button class="clear-btn" on:click={() => (delayIndex = null)}>1秒遅れ解除</button>
+  {/if}
+
+  {#if buzzerbeat}
+    <div class="rally-toggle">
+      <span class="rally-label">集結時間</span>
+      <div class="rally-tabs">
+        <button class="rally-tab" class:active={rallyMinutes === 1} on:click={() => rallyMinutes = 1}>1分</button>
+        <button class="rally-tab" class:active={rallyMinutes === 5} on:click={() => rallyMinutes = 5}>5分</button>
+      </div>
+    </div>
   {/if}
 
   {#if !buzzerbeat}
@@ -342,6 +355,41 @@
 
   tr.inactive td input {
     opacity: 0.35;
+  }
+
+  .rally-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .rally-label {
+    font-size: 0.9rem;
+    color: #555;
+    white-space: nowrap;
+  }
+
+  .rally-tabs {
+    display: flex;
+    border-radius: 6px;
+    overflow: hidden;
+    border: 1px solid #ddd;
+  }
+
+  .rally-tab {
+    padding: 0.3rem 0.8rem;
+    font-size: 0.9rem;
+    font-weight: bold;
+    background: #f5f5f5;
+    color: #888;
+    border: none;
+    cursor: pointer;
+  }
+
+  .rally-tab.active {
+    background: #4a90d9;
+    color: white;
   }
 
   .urgent-label {
