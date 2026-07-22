@@ -8,6 +8,17 @@
   };
 
   const STORAGE_KEY = 'starts-calc';
+  const SAVES_KEY = 'starts-calc-saves';
+  const SAVE_TTL = 6 * 60 * 60 * 1000; // 6時間
+
+  type SavedSet = {
+    name: string;
+    savedAt: number;
+    players: Player[];
+    delayIndex: number | null;
+    buzzerbeat: boolean;
+    rallyMinutes: number;
+  };
 
   let setName = '';
   let players: Player[] = [
@@ -27,6 +38,8 @@
   let result = '';
   let copied = false;
   let mounted = false;
+  let savedSets: SavedSet[] = [];
+  let tooltipVisible = false;
 
   $: validCount = players.filter(p => p.active && String(p.seconds).trim() !== '').length;
   $: canDelay = !buzzerbeat && validCount >= 2;
@@ -45,8 +58,48 @@
         if (s.rallyMinutes !== undefined) rallyMinutes = s.rallyMinutes;
       }
     } catch {}
+    loadSaves();
     mounted = true;
   });
+
+  function loadSaves() {
+    try {
+      const raw = localStorage.getItem(SAVES_KEY);
+      if (!raw) return;
+      const all: SavedSet[] = JSON.parse(raw);
+      const now = Date.now();
+      savedSets = all.filter(s => now - s.savedAt < SAVE_TTL);
+      if (savedSets.length !== all.length) {
+        localStorage.setItem(SAVES_KEY, JSON.stringify(savedSets));
+      }
+    } catch {}
+  }
+
+  function saveSet() {
+    if (!setName.trim()) return;
+    loadSaves();
+    const entry: SavedSet = {
+      name: setName.trim(),
+      savedAt: Date.now(),
+      players,
+      delayIndex,
+      buzzerbeat,
+      rallyMinutes,
+    };
+    // 同名は上書き
+    savedSets = [...savedSets.filter(s => s.name !== entry.name), entry];
+    localStorage.setItem(SAVES_KEY, JSON.stringify(savedSets));
+  }
+
+  function loadSet(s: SavedSet) {
+    setName = s.name;
+    players = s.players;
+    delayIndex = s.delayIndex;
+    buzzerbeat = s.buzzerbeat;
+    rallyMinutes = s.rallyMinutes;
+    result = '';
+    memoResult = '';
+  }
 
   $: stateJson = JSON.stringify({ setName, players, delayIndex, urgent, defense, buzzerbeat, rallyMinutes });
   $: if (mounted) localStorage.setItem(STORAGE_KEY, stateJson);
@@ -191,7 +244,26 @@
   <div class="field">
     <label>セット名</label>
     <input type="text" bind:value={setName} placeholder="南砲台" autocomplete="off" />
+    <button class="save-btn" on:click={saveSet} disabled={!setName.trim()}>保存</button>
   </div>
+
+  {#if savedSets.length > 0}
+    <div class="saved-sets">
+      {#each savedSets as s}
+        <button class="saved-btn" on:click={() => loadSet(s)}>{s.name}</button>
+      {/each}
+      <span class="info-wrap">
+        <span
+          class="info-icon"
+          tabindex="0"
+          on:click={() => tooltipVisible = !tooltipVisible}
+          on:keydown={e => e.key === 'Enter' && (tooltipVisible = !tooltipVisible)}
+          on:blur={() => tooltipVisible = false}
+        >ⓘ</span>
+        <span class="tooltip" class:visible={tooltipVisible}>6時間で自動削除されます</span>
+      </span>
+    </div>
+  {/if}
 
   <table class="players">
     <thead>
@@ -334,6 +406,73 @@
     align-items: center;
     gap: 0.5rem;
     margin-bottom: 0.75rem;
+  }
+
+  .save-btn {
+    padding: 0.4rem 0.6rem;
+    font-size: 0.85rem;
+    background: #e8f4e8;
+    color: #2e7d32;
+    border: 1px solid #a5d6a7;
+    border-radius: 6px;
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .save-btn:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+
+  .saved-sets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .info-wrap {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .info-icon {
+    font-size: 0.95rem;
+    color: #aaa;
+    cursor: default;
+    user-select: none;
+  }
+
+  .tooltip {
+    display: none;
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 6px);
+    transform: translateX(-50%);
+    background: #333;
+    color: #fff;
+    font-size: 0.78rem;
+    padding: 0.3rem 0.6rem;
+    border-radius: 6px;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+
+  .info-wrap:hover .tooltip,
+  .tooltip.visible {
+    display: block;
+  }
+
+  .saved-btn {
+    padding: 0.35rem 0.7rem;
+    font-size: 0.85rem;
+    background: #fff;
+    color: #444;
+    border: 1px solid #ccc;
+    border-radius: 20px;
+    cursor: pointer;
   }
 
   .field label {
