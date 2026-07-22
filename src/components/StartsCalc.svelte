@@ -146,6 +146,32 @@
     localStorage.removeItem(STORAGE_KEY);
   }
 
+  let memoResult = '';
+  let memoCopied = false;
+
+  function memo() {
+    const valid = players
+      .map((p, i) => ({ name: p.name || `P${i + 1}`, sec: parseInt(p.seconds) }))
+      .filter((_, i) => players[i].active && String(players[i].seconds).trim() !== '')
+      .filter(p => !isNaN(p.sec) && p.sec > 0);
+
+    if (valid.length === 0) {
+      memoResult = '入力してね';
+      return;
+    }
+    const lines = valid.map(p => `${p.name}　${p.sec}秒`);
+    const parts: string[] = [];
+    if (setName.trim()) parts.push(setName.trim());
+    parts.push(...lines);
+    memoResult = parts.join('\n');
+  }
+
+  async function copyMemo() {
+    await navigator.clipboard.writeText(memoResult);
+    memoCopied = true;
+    setTimeout(() => (memoCopied = false), 1500);
+  }
+
   async function copyResult() {
     await navigator.clipboard.writeText(result);
     copied = true;
@@ -228,13 +254,25 @@
     </label>
   {/if}
 
-  <button class="calc-btn" on:click={calculate}>計算する</button>
+  <div class="action-btns">
+    <button class="calc-btn" on:click={calculate}>計算する</button>
+    <button class="memo-btn" on:click={memo}>覚書</button>
+  </div>
 
   {#if result}
     <div class="result">
       <pre>{result}</pre>
       <button class="copy-btn" on:click={copyResult}>
         {copied ? 'コピーした！' : 'コピー'}
+      </button>
+    </div>
+  {/if}
+
+  {#if memoResult}
+    <div class="result memo-result">
+      <pre>{memoResult}</pre>
+      <button class="copy-btn" on:click={copyMemo}>
+        {memoCopied ? 'コピーした！' : 'コピー'}
       </button>
     </div>
   {/if}
@@ -419,8 +457,6 @@
   }
 
   .calc-btn {
-    display: block;
-    width: 100%;
     padding: 0.75rem;
     font-size: 1.1rem;
     font-weight: bold;
@@ -429,7 +465,34 @@
     border: none;
     border-radius: 8px;
     cursor: pointer;
+  }
+
+  .action-btns {
+    display: flex;
+    gap: 0.5rem;
     margin-bottom: 1rem;
+  }
+
+  .action-btns .calc-btn {
+    flex: 1;
+    margin-bottom: 0;
+  }
+
+  .memo-btn {
+    padding: 0.75rem 1rem;
+    font-size: 1rem;
+    font-weight: bold;
+    background: #f0f0f0;
+    color: #555;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .memo-result {
+    margin-top: 0.75rem;
+    background: #f0f5ff;
   }
 
   .result {
